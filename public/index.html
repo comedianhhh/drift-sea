@@ -1,0 +1,1208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<style>html{color-scheme:light}body{margin:0;font:14px system-ui,sans-serif}[hidden]{display:none!important}</style>
+</head>
+<body>
+<title>Drift Sea</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;500&family=Martian+Mono:wght@400&display=swap">
+<style>
+/* Layout: a WebGL sea of low-poly sharks, rendered into pixel tiles, under a 2D overlay for specks, text and the lattice.
+   HUD on the top edge, a frosted prompt card floats at center. Deliberately one light look, matching the reference. */
+:root {
+  --haze-center: #fbfbfb;
+  --haze-edge: #e1e2e3;
+  --ink: #262728;
+  --muted: #8b8d90;
+  --dot: #b9bbbe;
+  /* creature palettes, light -> dark tile ends: graphite, slate, kelp, sand, coral, dusk */
+  --p0-light: #e4e5e7; --p0-dark: #26282b;
+  --p1-light: #d8e1eb; --p1-dark: #1f4573;
+  --p2-light: #d7e8e1; --p2-dark: #1c5747;
+  --p3-light: #f0e6d3; --p3-dark: #7a5220;
+  --p4-light: #f2dfdb; --p4-dark: #8a3b33;
+  --p5-light: #e3def0; --p5-dark: #3b3270;
+  --accent: #2d5785;
+  /* IUCN Red List categories */
+  --iucn-cr: #c2331f; --iucn-en: #d9702b; --iucn-vu: #d6ad1a; --iucn-lc: #4b8f56; --iucn-text: #ffffff; --iucn-vu-text: #2a2400;
+  --glass: rgba(255, 255, 255, .58);
+  --glass-line: rgba(20, 22, 26, .08);
+  --lattice: #ffffff;
+  --f-display: "Manrope", "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --f-mono: "Martian Mono", ui-monospace, Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+html, body { height: 100%; }
+body {
+  color: var(--ink); overflow: hidden; font-family: var(--f-display);
+  background: radial-gradient(ellipse at 50% 42%, var(--haze-center) 0%, var(--haze-center) 25%, var(--haze-edge) 100%) fixed, var(--haze-edge);
+}
+canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+#ui { touch-action: manipulation; }
+
+.hud {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 2;
+  padding-top: calc(env(safe-area-inset-top, 0px) + 16px);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;
+  pointer-events: none;
+}
+.brand { font-weight: 500; font-size: 16px; letter-spacing: -.01em; }
+.sub { font-family: var(--f-mono); font-size: 10px; color: var(--muted); margin-top: 5px; }
+.stats { display: flex; gap: 22px; font-family: var(--f-mono); font-size: 10px; color: var(--muted); text-align: right; }
+.stats b { display: block; font-family: var(--f-display); font-weight: 300; font-size: 24px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.stats .mine b { color: var(--accent); }
+
+.prompt {
+  position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 2;
+  width: min(460px, calc(100% - 32px));
+  display: flex; flex-direction: column; align-items: center; gap: 18px;
+  pointer-events: none;
+}
+.prompt { transition: opacity .35s ease; }
+body.reading .prompt { opacity: .08; }
+body.reading .prompt .box { pointer-events: none; }
+.q { margin: 0; font-weight: 300; font-size: clamp(30px, 6vw, 46px); letter-spacing: -.03em; text-align: center; text-wrap: balance; }
+.box {
+  pointer-events: auto; width: 100%;
+  display: flex; flex-direction: column; gap: 10px;
+  background: var(--glass); border: 1px solid var(--glass-line); border-radius: 14px;
+  padding: 14px 14px 10px 16px;
+  box-shadow: 0 10px 34px rgba(20, 22, 26, .06);
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+}
+.box:focus-within { border-color: rgba(45, 87, 133, .35); }
+#msg { width: 100%; border: 0; background: transparent; color: var(--ink); font: 14px var(--f-display); padding: 2px 0; outline: none; }
+#msg::placeholder { color: var(--muted); }
+.row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+#count { font-family: var(--f-mono); font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
+#go {
+  border: 0; border-radius: 7px; padding: 7px 11px; cursor: pointer;
+  background: rgba(20, 22, 26, .07); color: var(--ink); font: 10px var(--f-mono);
+}
+#go:hover { background: rgba(20, 22, 26, .12); }
+#go:disabled { opacity: .4; cursor: default; }
+#go:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.hint { margin: 0; font-family: var(--f-mono); font-size: 10px; color: var(--muted); text-align: center; text-wrap: balance; }
+
+.right { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
+#guideBtn {
+  pointer-events: auto; cursor: pointer; border: 1px solid var(--glass-line); border-radius: 8px;
+  background: var(--glass); color: var(--ink); font: 10px var(--f-mono); padding: 7px 10px;
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+}
+#guideBtn:hover { background: rgba(255, 255, 255, .85); }
+#guideBtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#guideBtn b { font-weight: 400; color: var(--accent); }
+.guide {
+  position: fixed; z-index: 4; right: max(16px, env(safe-area-inset-right, 0px));
+  top: calc(env(safe-area-inset-top, 0px) + 112px);
+  width: min(360px, calc(100% - 32px)); max-height: calc(100% - 170px); overflow-y: auto;
+  background: rgba(255, 255, 255, .86); border: 1px solid var(--glass-line); border-radius: 14px;
+  -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+  box-shadow: 0 16px 40px rgba(20, 22, 26, .1); padding: 16px 18px 18px;
+}
+.guide-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.guide h2 { margin: 0; font-weight: 500; font-size: 16px; }
+.guide .close { border: 0; background: none; cursor: pointer; font: 10px var(--f-mono); color: var(--muted); padding: 4px; }
+.guide .close:focus-visible { outline: 2px solid var(--accent); }
+.guide .lede { margin: 6px 0 4px; font-size: 12px; color: var(--muted); line-height: 1.5; }
+.guide h3 { margin: 16px 0 6px; font: 10px var(--f-mono); color: var(--muted); letter-spacing: .06em; text-transform: uppercase; }
+.entry { display: grid; gap: 3px; padding: 10px 0; border-top: 1px solid var(--glass-line); }
+.entry .top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.entry .name { font-weight: 500; font-size: 13px; }
+.entry .sci { font-style: italic; font-size: 11px; color: var(--muted); }
+.entry .fact { font-size: 12px; line-height: 1.5; font-weight: 300; }
+.entry.unmet .name { color: var(--muted); font-weight: 300; letter-spacing: .2em; }
+.chip { font: 9px var(--f-mono); padding: 3px 6px; border-radius: 4px; white-space: nowrap; color: var(--iucn-text); }
+.chip.CR { background: var(--iucn-cr); } .chip.EN { background: var(--iucn-en); }
+.chip.VU { background: var(--iucn-vu); color: var(--iucn-vu-text); } .chip.LC { background: var(--iucn-lc); }
+.guide .src { margin: 14px 0 0; font: 9px var(--f-mono); color: var(--muted); }
+
+.status {
+  position: fixed; left: 0; bottom: 0; z-index: 2;
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  display: flex; align-items: center; gap: 8px; font-family: var(--f-mono); font-size: 10px; color: var(--muted);
+  pointer-events: none;
+}
+.dot { width: 6px; height: 6px; border-radius: 1px; background: var(--dot); }
+.dot.live { background: var(--accent); }
+.toast {
+  position: fixed; left: 50%; transform: translateX(-50%); z-index: 3;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 44px);
+  max-width: calc(100% - 32px);
+  background: var(--glass); border: 1px solid var(--glass-line); color: var(--ink);
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  font-size: 13px; line-height: 1.5; padding: 10px 16px; border-radius: 10px; text-align: center;
+  box-shadow: 0 10px 30px rgba(20, 22, 26, .08);
+}
+</style>
+
+<canvas id="gl" aria-hidden="true"></canvas>
+<canvas id="ui" aria-label="Drift Sea: every pixel shark is a sentence someone left behind. Click one to read it."></canvas>
+
+<header class="hud">
+  <div>
+    <div class="brand">Drift Sea</div>
+    <div class="sub">every fish is a sentence someone left behind</div>
+  </div>
+  <div class="right">
+    <div class="stats">
+      <div><b id="nAll">0</b>fish</div>
+      <div class="mine"><b id="nMine">0</b>yours</div>
+    </div>
+    <button id="guideBtn" type="button" aria-controls="guide" aria-expanded="false">Field guide · <b id="guideCount">0/0</b></button>
+  </div>
+</header>
+
+<aside class="guide" id="guide" hidden aria-label="Field guide">
+  <div class="guide-head"><h2>Field guide</h2><button class="close" id="guideClose" type="button">close ×</button></div>
+  <p class="lede" id="guideLede">Every creature in this sea is a real species. Click one to read its sentence and meet it here.</p>
+  <div id="guideList"></div>
+  <p class="src">Conservation status: IUCN Red List of Threatened Species.</p>
+</aside>
+
+<div class="prompt">
+  <p class="q">what's on your mind?</p>
+  <form id="f" class="box" autocomplete="off">
+    <input id="msg" maxlength="60" placeholder="Write a sentence, let it swim" aria-label="Write a sentence">
+    <div class="row">
+      <span id="count">0/60</span>
+      <button id="go" type="button">↗ release</button>
+    </div>
+  </form>
+  <p class="hint" id="hint">Click a creature to read it · longer sentences grow bigger creatures</p>
+</div>
+
+<div class="status"><span class="dot" id="dot"></span><span id="statusText">Reaching the sea…</span></div>
+<div class="toast" id="toast" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(() => {
+const $ = s => document.querySelector(s);
+const ui = $('#ui'), g = ui.getContext('2d');
+const DISPLAY = 'Manrope, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif';
+const MONO = '"Martian Mono", ui-monospace, Menlo, Consolas, monospace';
+const MAX_LEN = 60, MAX_MINE = 200, COOLDOWN = 8000, DAY = 864e5;
+const SPEED = matchMedia('(prefers-reduced-motion: reduce)').matches ? .4 : 1;
+// shared-store state; declared first because the HUD reads it as soon as the first fish is added
+let online = false, myOwner = null, loaded = false, mode = 'connecting';
+
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const lerp = (a, b, p) => a + (b - a) * p;
+const rand = (a, b) => a + Math.random() * (b - a);
+const ease = p => 1 - Math.pow(1 - clamp(p, 0, 1), 3);
+
+// ---- colors from the CSS tokens ----
+const C = {};
+(function readColors() {
+  const s = getComputedStyle(document.documentElement), v = k => s.getPropertyValue('--' + k).trim();
+  for (const k of ['ink', 'muted', 'dot', 'accent', 'glass', 'glass-line', 'lattice',
+    'iucn-cr', 'iucn-en', 'iucn-vu', 'iucn-lc', 'iucn-text', 'iucn-vu-text']) C[k] = v(k);
+  C.pal = [0, 1, 2, 3, 4, 5].map(i => [v(`p${i}-light`), v(`p${i}-dark`)]);
+})();
+const rgb01 = h => { h = h.replace('#', ''); return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16) / 255); };
+
+// ---- screen ----
+let W, H, DPR, S;
+const T = window.THREE;
+let renderer = null, rt = null;
+const scene = T ? new T.Scene() : null;
+const CAMZ = 30, FOV = 40, TAN = Math.tan(FOV / 2 * Math.PI / 180), FLOOR = -11.5;
+const camera = T ? new T.PerspectiveCamera(FOV, 1, 1, 120) : null;
+if (camera) camera.position.set(0, 0, CAMZ);
+try {
+  if (T) renderer = new T.WebGLRenderer({ canvas: $('#gl'), alpha: true, antialias: false, premultipliedAlpha: true });
+} catch (e) { renderer = null; }
+
+function resize() {
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  W = innerWidth; H = innerHeight;
+  ui.width = W * DPR; ui.height = H * DPR;
+  g.setTransform(DPR, 0, 0, DPR, 0, 0);
+  S = W < 600 ? 3 : 4;   // finest tile, css px; nearer creatures step up to chunkier tiles
+  if (renderer) {
+    renderer.setPixelRatio(DPR); renderer.setSize(W, H, false);
+    camera.aspect = W / H; camera.updateProjectionMatrix();
+    if (rt) rt.dispose();
+    rt = new T.WebGLRenderTarget(W, H, { depthBuffer: true, minFilter: T.NearestFilter, magFilter: T.NearestFilter });
+    if (post) { post.material.uniforms.uRes.value.set(W * DPR, H * DPR); post.material.uniforms.uTile.value = S * DPR; }
+  }
+}
+
+// ---- low-poly creatures, built by hand: a lofted body plus flat fins. Nose at +z, body length 1. ----
+// kind: 0 = side-to-side tail beat (fish, sharks), 1 = wing flap (manta), 2 = up-and-down fluke beat (whale)
+function geoFrom(pos) {
+  const geo = new T.BufferGeometry();
+  geo.setAttribute('position', new T.Float32BufferAttribute(pos, 3));
+  return geo;
+}
+const zs = s => .5 - s;
+// lofts rings of [s along body, half width, half height, centre y] into triangles; returns top(s) for placing fins
+function loft(pos, RINGS, SEG) {
+  const tri = (a, b, c) => pos.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2]);
+  const ring = RINGS.map(([s, w, h, cy]) => {
+    const pts = [];
+    for (let k = 0; k < SEG; k++) {
+      const a = k / SEG * Math.PI * 2, sn = Math.sin(a);
+      pts.push([w * Math.cos(a), cy + h * sn * (sn < 0 ? .85 : 1), zs(s)]);
+    }
+    return pts;
+  });
+  const nose = [0, RINGS[0][3], .5];
+  for (let k = 0; k < SEG; k++) tri(nose, ring[0][(k + 1) % SEG], ring[0][k]);
+  for (let r = 0; r < ring.length - 1; r++) for (let k = 0; k < SEG; k++) {
+    const a = ring[r][k], b = ring[r][(k + 1) % SEG], c = ring[r + 1][k], d = ring[r + 1][(k + 1) % SEG];
+    tri(a, b, c); tri(b, d, c);
+  }
+  const R = RINGS[RINGS.length - 1], end = [0, R[3], zs(R[0])];
+  for (let k = 0; k < SEG; k++) tri(end, ring[ring.length - 1][k], ring[ring.length - 1][(k + 1) % SEG]);
+  return {
+    tri,
+    top: s => { const r = RINGS[Math.max(0, RINGS.findIndex(q => q[0] >= s))]; return r[3] + r[2]; },
+    bot: s => { const r = RINGS[Math.max(0, RINGS.findIndex(q => q[0] >= s))]; return r[3] - r[2] * .85; },
+  };
+}
+function whaleGeometry() {
+  const pos = [];
+  const { tri, top } = loft(pos, [[.03, .05, .04, -.012], [.1, .1, .08, -.006], [.22, .128, .11, 0], [.38, .132, .116, 0],
+    [.55, .112, .1, 0], [.7, .076, .07, 0], [.84, .04, .045, 0], [.94, .022, .028, 0], [1, .014, .018, 0]], 10);
+  tri([0, top(.7) - .005, zs(.7)], [0, top(.78) - .005, zs(.78)], [0, top(.76) + .035, zs(.81)]);      // small dorsal
+  for (const sx of [-1, 1]) {
+    tri([sx * .11, -.05, zs(.2)], [sx * .1, -.06, zs(.3)], [sx * .44, -.17, zs(.47)]);                 // long flippers
+    tri([0, 0, -.47], [sx * .27, .01, -.6], [sx * .21, 0, -.69]);                                       // horizontal flukes
+    tri([0, 0, -.47], [sx * .21, 0, -.69], [0, 0, -.57]);
+  }
+  return geoFrom(pos);
+}
+function fishGeometry() {
+  const pos = [];
+  const { tri, top, bot } = loft(pos, [[.05, .03, .05, 0], [.15, .065, .14, .005], [.3, .075, .19, .01], [.45, .072, .18, .01],
+    [.6, .058, .14, .005], [.75, .035, .08, 0], [.88, .016, .035, 0], [1, .01, .024, 0]], 8);
+  tri([0, top(.32) - .01, zs(.32)], [0, top(.6) - .01, zs(.6)], [0, top(.42) + .1, zs(.64)]);        // dorsal
+  tri([0, bot(.55) + .01, zs(.55)], [0, bot(.68) + .01, zs(.68)], [0, bot(.6) - .08, zs(.72)]);       // anal
+  for (const sx of [-1, 1]) tri([sx * .07, -.03, zs(.24)], [sx * .07, -.045, zs(.32)], [sx * .17, -.09, zs(.43)]);
+  tri([0, .015, -.47], [0, -.015, -.5], [0, .22, -.72]);                                              // forked tail
+  tri([0, .015, -.5], [0, -.015, -.47], [0, -.22, -.72]);
+  tri([0, .22, -.72], [0, 0, -.5], [0, .06, -.62]);
+  tri([0, -.22, -.72], [0, 0, -.5], [0, -.06, -.62]);
+  return geoFrom(pos);
+}
+function mantaGeometry() {
+  const pos = [];
+  const tri = (a, b, c) => pos.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2]);
+  // a flat diamond of wings around a raised centre, plus the horn-like head fins and a whip tail
+  const rim = [[0, 0, .3], [.09, 0, .33], [.11, .005, .26], [.38, .012, .14], [.72, 0, -.1], [.44, 0, -.12], [.16, 0, -.24], [0, 0, -.26]];
+  const ring = [...rim, ...rim.slice(1, -1).reverse().map(([x, y, z]) => [-x, y, z])];
+  const topC = [0, .075, .02], botC = [0, -.045, .02];
+  for (let i = 0; i < ring.length; i++) {
+    const a = ring[i], b = ring[(i + 1) % ring.length];
+    tri(topC, a, b); tri(botC, b, a);
+  }
+  tri([.012, 0, -.24], [-.012, 0, -.24], [0, .004, -.95]);
+  return geoFrom(pos);
+}
+function sharkGeometry() {
+  const pos = [];
+  const tri = (a, b, c) => pos.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2]);
+  // [s along body, half width, half height, centre y]
+  const RINGS = [[.04, .028, .026, -.004], [.12, .062, .066, 0], [.24, .088, .094, .004], [.38, .094, .1, .006],
+                 [.52, .08, .086, .004], [.66, .058, .064, .002], [.8, .035, .042, .002], [.92, .018, .03, .004], [1, .012, .026, .006]];
+  const SEG = 8, ring = RINGS.map(([s, w, h, cy]) => {
+    const pts = [];
+    for (let k = 0; k < SEG; k++) {
+      const a = k / SEG * Math.PI * 2, sn = Math.sin(a);
+      pts.push([w * Math.cos(a), cy + h * 1.22 * sn * (sn < 0 ? .8 : 1), .5 - s]);
+    }
+    return pts;
+  });
+  const nose = [0, -.006, .5];
+  for (let k = 0; k < SEG; k++) tri(nose, ring[0][(k + 1) % SEG], ring[0][k]);
+  for (let r = 0; r < ring.length - 1; r++) for (let k = 0; k < SEG; k++) {
+    const a = ring[r][k], b = ring[r][(k + 1) % SEG], c = ring[r + 1][k], d = ring[r + 1][(k + 1) % SEG];
+    tri(a, b, c); tri(b, d, c);
+  }
+  const end = [0, .006, -.5];
+  for (let k = 0; k < SEG; k++) tri(end, ring[ring.length - 1][k], ring[ring.length - 1][(k + 1) % SEG]);
+  const top = s => { const i = RINGS.findIndex(r => r[0] >= s); const r = RINGS[Math.max(0, i)]; return r[3] + r[2]; };
+  const z = s => .5 - s;
+  // first dorsal fin: tall, swept back
+  tri([0, top(.3) - .01, z(.3)], [0, top(.5) - .01, z(.5)], [0, top(.4) + .17, z(.58)]);
+  // second dorsal and anal fins
+  tri([0, top(.74) - .005, z(.74)], [0, top(.81) - .005, z(.81)], [0, top(.78) + .05, z(.86)]);
+  tri([0, -.03, z(.74)], [0, -.03, z(.8)], [0, -.075, z(.85)]);
+  // pectoral fins: wide, angled down and back
+  for (const sx of [-1, 1]) {
+    tri([sx * .07, -.05, z(.26)], [sx * .06, -.055, z(.4)], [sx * .27, -.15, z(.5)]);
+    tri([sx * .045, -.04, z(.62)], [sx * .04, -.04, z(.68)], [sx * .09, -.08, z(.74)]);   // pelvic
+  }
+  // tail: the upper lobe long and raked, the lower lobe short
+  tri([0, .03, -.46], [0, -.005, -.5], [0, .27, -.74]);
+  tri([0, .27, -.74], [0, -.005, -.5], [0, .2, -.7]);
+  tri([0, .0, -.46], [0, .02, -.5], [0, -.15, -.64]);
+  return geoFrom(pos);
+}
+
+// creature material: writes darkness (r), palette index (g), depth (b) into an offscreen target for the tile pass
+const SHARK_VS = `
+uniform float uPhase, uAmp, uCurve, uKind;
+varying vec3 vView; varying vec3 vObj; varying float vDepth;
+void main() {
+  vec3 p = position;
+  if (uKind < 0.5) {            // side-to-side tail beat plus a bend into turns
+    float t = clamp((0.3 - p.z) / 0.8, 0.0, 1.2);
+    p.x += sin(uPhase + p.z * 6.0) * uAmp * t * t + uCurve * t * t;
+  } else if (uKind < 1.5) {     // manta: wings flap, the whip tail trails
+    float ax = abs(p.x);
+    p.y += sin(uPhase - ax * 2.2) * uAmp * 5.0 * ax * ax;
+    float t = clamp((-0.24 - p.z) / 0.7, 0.0, 1.0);
+    p.x += sin(uPhase * 1.4 + p.z * 7.0) * uAmp * 1.5 * t + uCurve * t;
+  } else if (uKind < 2.5) {     // whale: flukes beat up and down
+    float t = clamp((0.2 - p.z) / 0.7, 0.0, 1.2);
+    p.y += sin(uPhase + p.z * 4.0) * uAmp * t * t;
+    p.x += uCurve * t * t;
+  }
+  vObj = position;
+  vec4 mv = modelViewMatrix * vec4(p, 1.0);
+  vView = mv.xyz; vDepth = -mv.z;
+  gl_Position = projectionMatrix * mv;
+}`;
+const SHARK_FS = `
+uniform float uGain, uPal;
+varying vec3 vView; varying vec3 vObj; varying float vDepth;
+void main() {
+  vec3 n = normalize(cross(dFdx(vView), dFdy(vView)));   // flat facets: the low-poly look
+  vec3 no = normalize(cross(dFdx(vObj), dFdy(vObj)));    // the same facet in the creature's own frame
+  float back = clamp(no.y * 0.8 + vObj.y * 5.0, -1.0, 1.0);   // dark back, pale belly
+  float lam = clamp(dot(n, normalize(vec3(-0.35, 0.8, 0.5))), 0.0, 1.0);
+  float dark = mix(0.36, 1.0, back * 0.5 + 0.5) * (1.32 - 0.62 * lam);
+  gl_FragColor = vec4(clamp(dark * uGain, 0.0, 1.0), uPal / 8.0, clamp((vDepth - 8.0) / 48.0, 0.0, 1.0), 1.0);
+}`;
+// tile pass: each screen tile samples the shark render at its centre and draws one square,
+// bigger and darker where the body is darker; nearer sharks use chunkier tiles; edges fray
+const POST_FS = `
+uniform sampler2D tScene; uniform vec2 uRes; uniform float uTile, uTime;
+uniform vec3 pL[6], pD[6];
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+vec4 at(vec2 px) { return texture2D(tScene, px / uRes); }
+void main() {
+  vec2 fc = gl_FragCoord.xy;
+  float size = uTile * 2.6;
+  vec2 cell = floor(fc / size); vec4 s = at((cell + 0.5) * size);
+  if (!(s.a > 0.5 && s.b < 0.3)) {
+    size = uTile * 1.6; cell = floor(fc / size); s = at((cell + 0.5) * size);
+    if (!(s.a > 0.5 && s.b < 0.56)) { size = uTile; cell = floor(fc / size); s = at((cell + 0.5) * size); }
+  }
+  if (s.a < 0.5) { gl_FragColor = vec4(0.0); return; }
+  float edge = 0.0;
+  edge += step(at((cell + vec2(1.5, 0.5)) * size).a, 0.5);
+  edge += step(at((cell + vec2(-0.5, 0.5)) * size).a, 0.5);
+  edge += step(at((cell + vec2(0.5, 1.5)) * size).a, 0.5);
+  edge += step(at((cell + vec2(0.5, -0.5)) * size).a, 0.5);
+  if (edge > 0.0 && hash(cell + floor(uTime * 2.0) * 0.37) < 0.16 + edge * 0.06) { gl_FragColor = vec4(0.0); return; }
+  float d = s.r * mix(1.0, 0.5, s.b);                    // far sharks fade toward the haze
+  d = clamp(d + (hash(cell * 1.7) - 0.5) * 0.12, 0.0, 1.0);
+  vec2 l = fract(fc / size) - 0.5;
+  float hw = 0.34 + 0.13 * d;
+  if (max(abs(l.x), abs(l.y)) > hw) { gl_FragColor = vec4(0.0); return; }
+  int idx = int(floor(s.g * 8.0 + 0.5));
+  vec3 cl = pL[0], cd = pD[0];
+  for (int i = 1; i < 6; i++) if (i == idx) { cl = pL[i]; cd = pD[i]; }
+  gl_FragColor = vec4(mix(cl, cd, d), 1.0);
+}`;
+let post = null, GEO = null;
+if (renderer) {
+  GEO = { shark: sharkGeometry(), whale: whaleGeometry(), manta: mantaGeometry(), fish: fishGeometry() };
+  const postMat = new T.ShaderMaterial({
+    uniforms: {
+      tScene: { value: null }, uRes: { value: new T.Vector2(1, 1) }, uTile: { value: 7 }, uTime: { value: 0 },
+      pL: { value: C.pal.map(p => new T.Vector3(...rgb01(p[0]))) },
+      pD: { value: C.pal.map(p => new T.Vector3(...rgb01(p[1]))) },
+    },
+    vertexShader: 'void main(){ gl_Position = vec4(position.xy, 0.0, 1.0); }',
+    fragmentShader: POST_FS, depthTest: false, depthWrite: false, transparent: true,
+  });
+  post = new T.Mesh(new T.PlaneGeometry(2, 2), postMat);
+  post.frustumCulled = false;
+  post.scene = new T.Scene(); post.scene.add(post);
+  post.cam = new T.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+}
+resize();
+addEventListener('resize', resize);
+
+// ---- 2D overlay: specks and lattice ----
+function drawWater(t) {
+  const tt = t * .5 * SPEED, s = 8;
+  g.fillStyle = C.dot;
+  for (let j = 0, rows = Math.ceil(H / s); j < rows; j++) for (let i = (j * 3) % 5, cols = Math.ceil(W / s); i < cols; i += 5) {
+    const w = (Math.sin(i * .08 + tt) + Math.sin(j * .17 - tt * .8 + i * .03) + Math.sin((i - j) * .05 + tt * .6)) / 3;
+    if (w > .6) g.fillRect(i * s + s / 2 - 1, j * s + s / 2 - 1, 2, 2);
+  }
+}
+function drawLattice() {
+  const side = W < 600 ? 34 : 48, hw = side * Math.sqrt(3) / 2;
+  const ox = W - side * 5.2, oy = H - side * 3.6, fade = (x, y) => clamp(1 - Math.hypot(W - x, H - y) / (side * 6), 0, 1);
+  g.lineWidth = 1;
+  for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) {
+    const cx = ox + c * hw * 2 + (r % 2) * hw, cy = oy + r * side * 1.5;
+    const a = fade(cx, cy); if (a <= 0) continue;
+    g.strokeStyle = C.lattice; g.fillStyle = C.lattice; g.globalAlpha = .9 * a;
+    g.beginPath();
+    for (let i = 0; i <= 6; i++) {
+      const ang = Math.PI / 6 + i * Math.PI / 3, x = cx + Math.cos(ang) * side, y = cy + Math.sin(ang) * side;
+      i ? g.lineTo(x, y) : g.moveTo(x, y);
+    }
+    g.stroke();
+    for (let i = 0; i < 6; i++) {
+      const ang = Math.PI / 6 + i * Math.PI / 3;
+      g.beginPath(); g.arc(cx + Math.cos(ang) * side, cy + Math.sin(ang) * side, 2.6, 0, 6.3); g.fill();
+    }
+  }
+  g.globalAlpha = 1;
+}
+
+// ---- sharks in 3D ----
+const fishMap = new Map();   // key -> fish
+let fishList = [];
+const ageN = f => f.decor ? .2 : clamp((Date.now() - f.at) / (7 * DAY), 0, 1);
+const halfH = z => (CAMZ - z) * TAN;
+const halfW = z => halfH(z) * W / H;
+// young sharks swim near the glass and high; old ones sink far and low
+function zone(f) {
+  if (f.decor) return f.zone;
+  const a = ageN(f);
+  return { z: [lerp(-6, -30, a), lerp(10, -14, a)], y: [lerp(-.25, -.9, a), lerp(.75, -.15, a)] };
+}
+function pickTarget(f) {
+  const zn = zone(f), z = rand(zn.z[0], zn.z[1]);
+  f.target = new T.Vector3(rand(-1.2, 1.2) * halfW(z), Math.max(FLOOR + 1.6 + (f.scale || 1) * .2, rand(zn.y[0], zn.y[1]) * halfH(z)), z);
+  f.retarget = rand(7, 14);
+}
+// The sentence decides the creature: short lines become small fish, middling ones sharks or mantas,
+// long ones whales. Its id seeds the rest (which palette, a little size variation), so every viewer sees the same animal.
+const SPECIES = {
+  fish:  { kind: 0, size: [1.4, 2],   speed: .9,  freq: [1.9, 2.6], hit: .2 },
+  shark: { kind: 0, size: [2.6, 3.6], speed: .55, freq: [.9, 1.3],  hit: .14 },
+  manta: { kind: 1, size: [2.8, 4],   speed: .4,  freq: [.38, .5], hit: .32 },
+  whale: { kind: 2, size: [5.5, 7.5], speed: .3,  freq: [.3, .42], hit: .14 },
+};
+function seeded(str) {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return () => { h = Math.imul(h ^ (h >>> 15), 2246822507); h = Math.imul(h ^ (h >>> 13), 3266489909); return ((h ^= h >>> 16) >>> 0) / 4294967296; };
+}
+// Real species behind each body shape. Status is the IUCN Red List category; facts are kept to well-established ones.
+const CATALOG = {
+  fish: [
+    { id: 'cod', name: 'Atlantic cod', sci: 'Gadus morhua', iucn: 'VU', habitat: 'Cold shelf waters of the North Atlantic',
+      fact: 'Canada closed its northern cod fishery in 1992 after the stock collapsed, and it has been slow to recover.' },
+    { id: 'herring', name: 'Atlantic herring', sci: 'Clupea harengus', iucn: 'LC', habitat: 'Open water of the North Atlantic',
+      fact: 'Herring can let out air in a stream of fast ticking sounds; scientists think it may help schools stay together in the dark.' },
+    { id: 'wrasse', name: 'Humphead wrasse', sci: 'Cheilinus undulatus', iucn: 'EN', habitat: 'Coral reefs of the Indo-Pacific',
+      fact: 'Many begin life as females and later change into males.' },
+    { id: 'mola', name: 'Ocean sunfish', sci: 'Mola mola', iucn: 'VU', habitat: 'Temperate and tropical open ocean',
+      fact: 'One of the heaviest bony fish; a single female can carry hundreds of millions of eggs.' },
+    { id: 'tuna', name: 'Atlantic bluefin tuna', sci: 'Thunnus thynnus', iucn: 'LC', habitat: 'The Atlantic Ocean and the Mediterranean',
+      fact: 'It keeps its muscles warmer than the water around it, which lets it hunt in cold seas.' },
+  ],
+  shark: [
+    { id: 'whaleshark', name: 'Whale shark', sci: 'Rhincodon typus', iucn: 'EN', habitat: 'Warm tropical seas',
+      fact: 'The largest fish alive, yet it eats by filtering plankton and small fish out of the water.' },
+    { id: 'white', name: 'Great white shark', sci: 'Carcharodon carcharias', iucn: 'VU', habitat: 'Cool coastal waters worldwide',
+      fact: 'Like other sharks, it can sense the faint electric fields given off by living prey.' },
+    { id: 'hammerhead', name: 'Scalloped hammerhead', sci: 'Sphyrna lewini', iucn: 'CR', habitat: 'Warm coastal waters and seamounts',
+      fact: 'By day, large schools of them gather around seamounts and islands.' },
+    { id: 'whitetip', name: 'Oceanic whitetip shark', sci: 'Carcharhinus longimanus', iucn: 'CR', habitat: 'Warm open ocean',
+      fact: 'Its long, rounded, white-tipped pectoral fins make it easy to recognise, and prized in the shark fin trade.' },
+    { id: 'greenland', name: 'Greenland shark', sci: 'Somniosus microcephalus', iucn: 'VU', habitat: 'Deep, cold Arctic and North Atlantic water',
+      fact: 'It can live for centuries; one studied in 2016 was estimated to be about 400 years old.' },
+  ],
+  manta: [
+    { id: 'reefmanta', name: 'Reef manta ray', sci: 'Mobula alfredi', iucn: 'VU', habitat: 'Coral reefs and coasts of the Indo-Pacific',
+      fact: 'Manta rays have one of the largest brains for their body size of any fish.' },
+    { id: 'giantmanta', name: 'Giant manta ray', sci: 'Mobula birostris', iucn: 'EN', habitat: 'Open ocean worldwide',
+      fact: 'The largest ray in the world, with a wingspan that can reach about 7 metres.' },
+  ],
+  whale: [
+    { id: 'blue', name: 'Blue whale', sci: 'Balaenoptera musculus', iucn: 'EN', habitat: 'Every ocean',
+      fact: 'The largest animal known to have ever lived.' },
+    { id: 'humpback', name: 'Humpback whale', sci: 'Megaptera novaeangliae', iucn: 'LC', habitat: 'Every ocean, migrating between polar and tropical waters',
+      fact: 'Males sing long, complex songs that change over time and can spread from one population to another.' },
+    { id: 'right', name: 'North Atlantic right whale', sci: 'Eubalaena glacialis', iucn: 'CR', habitat: 'Coastal waters of the western North Atlantic',
+      fact: 'Fewer than 400 remain; ship strikes and entanglement in fishing gear are the main threats.' },
+    { id: 'sperm', name: 'Sperm whale', sci: 'Physeter macrocephalus', iucn: 'VU', habitat: 'Deep open ocean',
+      fact: 'It has the largest brain of any animal and hunts squid more than 1,000 metres down.' },
+  ],
+};
+const IUCN = { CR: 'Critically Endangered', EN: 'Endangered', VU: 'Vulnerable', NT: 'Near Threatened', LC: 'Least Concern' };
+const ALL_SPECIES = Object.values(CATALOG).flat();
+function creatureFor(o) {
+  const r = seeded(o.key), len = [...o.text].length;
+  const species = len <= 12 ? 'fish' : len <= 34 ? (r() < .6 ? 'shark' : 'manta') : 'whale';
+  const sp = SPECIES[species], palRoll = r();
+  const pal = palRoll < .38 ? 0 : 1 + Math.floor((palRoll - .38) / .62 * 5);   // graphite most often, then the five tints
+  const list = CATALOG[species], info = list[Math.floor(r() * list.length)];
+  return { species, pal, scale: lerp(sp.size[0], sp.size[1], r()), info };
+}
+function makeFish(o, fromAbove) {
+  const cr = o.decor ? { species: o.species, pal: o.pal || 0, scale: o.scale } : creatureFor(o);
+  const sp = SPECIES[cr.species];
+  const f = { ...o, ...cr, kind: sp.kind, hitR: sp.hit, v: 0, turn: 0, phase: rand(0, 6.3),
+    freq: rand(sp.freq[0], sp.freq[1]), burst: 0, nextBurst: rand(3, 9), retarget: 0 };
+  f.base = f.scale * sp.speed;
+  const zn = zone(f), z = rand(zn.z[0], zn.z[1]);
+  f.pos = new T.Vector3(rand(-.9, .9) * halfW(z), fromAbove ? halfH(z) + f.scale : rand(zn.y[0], zn.y[1]) * halfH(z), z);
+  f.dir = new T.Vector3(Math.random() < .5 ? 1 : -1, fromAbove ? -.6 : rand(-.15, .15), rand(-.3, .3)).normalize();
+  f.mat = new T.ShaderMaterial({
+    uniforms: { uPhase: { value: 0 }, uAmp: { value: .06 }, uCurve: { value: 0 }, uGain: { value: 1 },
+      uPal: { value: f.pal }, uKind: { value: f.kind } },
+    vertexShader: SHARK_VS, fragmentShader: SHARK_FS, side: T.DoubleSide, extensions: { derivatives: true },
+  });
+  f.mesh = new T.Mesh(GEO[f.species], f.mat);
+  f.mesh.frustumCulled = false;
+  scene.add(f.mesh);
+  pickTarget(f);
+  if (fromAbove) f.target.y = rand(zn.y[0], zn.y[1]) * halfH(f.target.z);
+  return f;
+}
+const tmp = T && new T.Vector3(), tmp2 = T && new T.Vector3(), UPV = T && new T.Vector3(0, 1, 0);
+function swim(f, dt) {
+  const held = sel && sel.f === f;
+  f.nextBurst -= dt;
+  if (f.nextBurst <= 0 && !held) { f.burst = rand(.8, 1.6); f.nextBurst = rand(5, 12); }
+  f.burst = Math.max(0, f.burst - dt);
+  const kick = f.burst > 0 ? (f.kind === 0 ? 1.9 : 1.3) : 1;
+  const want = held ? 0 : f.base * kick * (1 - .5 * ageN(f)) * SPEED;
+  f.v += (want - f.v) * Math.min(1, dt * 1.4);
+  f.retarget -= dt;
+  if (f.retarget <= 0 || f.pos.distanceTo(f.target) < f.scale * .8) pickTarget(f);
+  // steer toward the target with a limited turn rate; keep the pitch shallow
+  const yaw0 = Math.atan2(f.dir.x, f.dir.z);
+  if (!held) {
+    tmp.subVectors(f.target, f.pos).normalize();
+    f.dir.lerp(tmp, Math.min(1, dt * .9)).normalize();
+    f.dir.y = clamp(f.dir.y, -.4, .4); f.dir.normalize();
+  }
+  let dy = Math.atan2(f.dir.x, f.dir.z) - yaw0;
+  if (dy > Math.PI) dy -= 2 * Math.PI; if (dy < -Math.PI) dy += 2 * Math.PI;
+  f.turn += (clamp(dy / Math.max(dt, 1e-3), -2, 2) - f.turn) * Math.min(1, dt * 3);
+  f.pos.addScaledVector(f.dir, f.v * dt);
+  // tail beat speeds up with swimming speed
+  const sr = f.v / f.base;
+  f.phase += dt * f.freq * 6.28 * (.5 + .9 * sr) * SPEED;
+  const u = f.mat.uniforms;
+  u.uPhase.value = f.phase;
+  u.uAmp.value = f.kind === 1 ? .06 + .02 * clamp(sr, 0, 2) : f.kind === 2 ? .05 + .03 * clamp(sr, 0, 2) : .045 + .05 * clamp(sr, 0, 2);
+  u.uCurve.value = clamp(-f.turn * .09, -.18, .18);
+  // orient: nose along dir, bank into the turn
+  f.mesh.position.copy(f.pos);
+  f.mesh.scale.setScalar(f.scale);
+  tmp2.copy(f.pos).add(f.dir);
+  f.mesh.up.copy(UPV);
+  f.mesh.lookAt(tmp2);
+  f.mesh.rotateZ(clamp(f.turn * (f.kind === 1 ? .8 : .45), -1, 1));   // mantas bank hardest
+  f.mesh.updateMatrixWorld();
+}
+function removeFish(f) { scene.remove(f.mesh); f.mat.dispose(); }
+function addFish(o, fromAbove) {
+  if (fishMap.has(o.key) || !renderer) return;
+  fishMap.set(o.key, makeFish(o, fromAbove));
+  rebuildList();
+}
+function rebuildList() { fishList = [...fishMap.values()]; updateHud(); }
+
+// screen projection helpers
+const pv = T && new T.Vector3();
+function screenOf(f, lz) {   // a point on the shark's centre line, local z from +.5 (nose) to -.5 (tail)
+  pv.set(0, 0, lz).applyMatrix4(f.mesh.matrixWorld).project(camera);
+  return { x: (pv.x + 1) / 2 * W, y: (1 - pv.y) / 2 * H, z: pv.z };
+}
+const pxPerUnit = f => (H / 2) / halfH(f.pos.z);
+function hitTest(x, y) {
+  const order = [...fishList].sort((a, b) => b.pos.z - a.pos.z);   // nearest first
+  for (const f of order) {
+    if (f.decor) continue;
+    const r = f.scale * f.hitR * pxPerUnit(f) + 10;
+    for (const lz of [.42, .25, .08, -.1, -.28]) { const p = screenOf(f, lz); if (Math.hypot(p.x - x, p.y - y) < r) return f; }
+  }
+  return null;
+}
+
+// wordless creatures that keep an empty sea alive; never stored, never clickable
+if (renderer) {
+  const d = (k, species, scale, pal, z, y) => addFish({ key: 'decor' + k, text: '', at: Date.now(), decor: true, species, scale, pal, zone: { z, y } });
+  d(0, 'whale', 8, 0, [-34, -24], [-.7, .1]);
+  d(1, 'manta', 3.6, 0, [-14, -2], [-.5, .5]);
+  d(2, 'shark', 3.2, 0, [-8, 6], [-.4, .5]);
+}
+
+// ---- ambient schools: many small fish drawn as one instanced mesh, each school trailing a wandering leader ----
+const SCHOOL_VS = `
+uniform float uTime;
+attribute vec2 aInst;   // x: tail-beat phase, y: palette
+varying vec3 vView; varying vec3 vObj; varying float vDepth; varying float vPal;
+void main() {
+  vec3 p = position;
+  float t = clamp((0.3 - p.z) / 0.8, 0.0, 1.2);
+  p.x += sin(uTime * 13.0 + aInst.x + p.z * 6.0) * 0.09 * t * t;
+  vObj = position; vPal = aInst.y;
+  vec4 mv = modelViewMatrix * instanceMatrix * vec4(p, 1.0);
+  vView = mv.xyz; vDepth = -mv.z;
+  gl_Position = projectionMatrix * mv;
+}`;
+const SCHOOL_FS = SHARK_FS.replace('uniform float uGain, uPal;', 'uniform float uGain; varying float vPal;').replace('uPal / 8.0', 'vPal / 8.0');
+const SCHOOLS = [];
+let schoolMesh = null;
+const dummy = T && new T.Object3D(), prev = T && new T.Vector3();
+if (renderer) {
+  const PER = W < 600 ? 14 : 22, COUNT = W < 600 ? 5 : 9, total = PER * COUNT;
+  const geo = GEO.fish.clone(), inst = new Float32Array(total * 2);
+  const pals = [2, 3, 1, 4, 0, 5, 2, 3, 1];
+  for (let s = 0; s < COUNT; s++) {
+    const z = rand(-26, 6);
+    const lead = { decor: true, zone: { z: [-26, 6], y: [-.85, .75] }, speed: rand(1.4, 2.4),
+      pos: new T.Vector3(rand(-1, 1) * halfW(z), rand(-.7, .6) * halfH(z), z),
+      dir: new T.Vector3(Math.random() < .5 ? 1 : -1, 0, rand(-.3, .3)).normalize() };
+    pickTarget(lead);
+    const size = rand(.7, 1.25), spread = rand(1.6, 3), members = [];
+    for (let m = 0; m < PER; m++) {
+      const i = s * PER + m;
+      inst[i * 2] = rand(0, 6.3); inst[i * 2 + 1] = pals[s % pals.length];
+      const off = new T.Vector3(rand(-1, 1) * spread, rand(-1, 1) * spread * .45, rand(-1, 1) * spread * .8);
+      members.push({ i, off, k: rand(1.1, 2.4), size: size * rand(.85, 1.15), pos: lead.pos.clone().add(off), dir: lead.dir.clone() });
+    }
+    SCHOOLS.push({ lead, members });
+  }
+  geo.setAttribute('aInst', new T.InstancedBufferAttribute(inst, 2));
+  const mat = new T.ShaderMaterial({ uniforms: { uTime: { value: 0 }, uGain: { value: .85 } },
+    vertexShader: SCHOOL_VS, fragmentShader: SCHOOL_FS, side: T.DoubleSide, extensions: { derivatives: true } });
+  schoolMesh = new T.InstancedMesh(geo, mat, total);
+  schoolMesh.frustumCulled = false;
+  scene.add(schoolMesh);
+}
+// ---- the seabed: low-poly sand, rocks, coral and swaying kelp, all drawn through the same tile pass ----
+// Scenery uses the creature shading minus the back/belly term, so it reads as lit from above.
+const SCENERY_FS = SHARK_FS.replace(' + vObj.y * 5.0', '');
+const KELP_VS = `
+uniform float uTime;
+attribute vec2 aSway;   // x: height along the strand 0..1, y: phase
+varying vec3 vView; varying vec3 vObj; varying float vDepth;
+void main() {
+  vec3 p = position;
+  float k = pow(aSway.x, 1.4);
+  p.x += sin(uTime * 0.9 + aSway.y + p.y * 0.35) * 0.55 * k;
+  p.z += cos(uTime * 0.7 + aSway.y) * 0.3 * k;
+  vObj = position;
+  vec4 mv = modelViewMatrix * vec4(p, 1.0);
+  vView = mv.xyz; vDepth = -mv.z;
+  gl_Position = projectionMatrix * mv;
+}`;
+let kelpMat = null;
+function prism(pos, a, b, ra, rb, sides) {   // a tapered low-poly branch from a to b
+  const ax = new T.Vector3().subVectors(b, a).normalize();
+  const u = new T.Vector3(1, 0, 0).cross(ax); if (u.lengthSq() < 1e-4) u.set(0, 0, 1).cross(ax); u.normalize();
+  const v = new T.Vector3().crossVectors(ax, u);
+  const ringAt = (c, r) => Array.from({ length: sides }, (_, k) => {
+    const t = k / sides * Math.PI * 2;
+    return c.clone().addScaledVector(u, Math.cos(t) * r).addScaledVector(v, Math.sin(t) * r);
+  });
+  const A = ringAt(a, ra), B = ringAt(b, rb);
+  const push = (...ps) => ps.forEach(p => pos.push(p.x, p.y, p.z));
+  for (let k = 0; k < sides; k++) { const n = (k + 1) % sides; push(A[k], A[n], B[k]); push(A[n], B[n], B[k]); push(B[k], B[n], b); }
+}
+if (renderer) {
+  const scenery = (pos, pal, gain) => {
+    const geo = new T.BufferGeometry();
+    geo.setAttribute('position', new T.Float32BufferAttribute(pos, 3));
+    const m = new T.Mesh(geo, new T.ShaderMaterial({
+      uniforms: { uPhase: { value: 0 }, uAmp: { value: 0 }, uCurve: { value: 0 }, uGain: { value: gain }, uPal: { value: pal }, uKind: { value: 3 } },
+      vertexShader: SHARK_VS, fragmentShader: SCENERY_FS, side: T.DoubleSide, extensions: { derivatives: true } }));
+    m.frustumCulled = false; scene.add(m);
+  };
+  const Z0 = 12, Z1 = -52, span = z => halfW(z) * 1.15;
+  // sand: a bumpy grid, faceted
+  {
+    const geo = new T.PlaneGeometry(130, Z0 - Z1, 34, 16);
+    geo.rotateX(-Math.PI / 2);
+    geo.translate(0, FLOOR, (Z0 + Z1) / 2);
+    const p = geo.attributes.position;
+    for (let i = 0; i < p.count; i++) p.setY(i, FLOOR + rand(-.5, .5) + Math.sin(p.getX(i) * .15) * .6);
+    scenery(geo.toNonIndexed().attributes.position.array, 3, .3);
+  }
+  const groundY = () => FLOOR + rand(-.2, .2);
+  const placeX = z => rand(-1, 1) * span(z);
+  const wide = W >= 600;
+  // rocks: squashed low-poly stones
+  {
+    const pos = [];
+    for (let i = 0; i < (wide ? 14 : 7); i++) {
+      const z = rand(Z1 + 6, 4), r = rand(.8, 2.4), rock = new T.DodecahedronGeometry(r, 0).toNonIndexed();
+      rock.scale(rand(1, 1.6), rand(.45, .75), rand(.9, 1.3)); rock.rotateY(rand(0, 6.3)); rock.translate(placeX(z), groundY() + r * .2, z);
+      pos.push(...rock.attributes.position.array);
+    }
+    scenery(pos, 0, .6);
+  }
+  // coral: branching fans, staghorn and brain coral, grouped by palette (coral, dusk, sand)
+  for (const pal of [4, 5, 3]) {
+    const pos = [];
+    for (let i = 0; i < (wide ? 7 : 3); i++) {
+      const z = rand(Z1 + 8, 6), x = placeX(z), y = groundY(), r = rand(.8, 1.6), style = Math.random();
+      if (style < .45) {          // staghorn: branches that fork once
+        for (let b = 0; b < 5; b++) {
+          const a = new T.Vector3(x + rand(-.3, .3) * r, y, z + rand(-.3, .3) * r);
+          const tip = a.clone().add(new T.Vector3(rand(-.8, .8), rand(1.2, 2.4), rand(-.6, .6)).multiplyScalar(r));
+          prism(pos, a, tip, .22 * r, .07 * r, 4);
+          const mid = a.clone().lerp(tip, .55);
+          prism(pos, mid, mid.clone().add(new T.Vector3(rand(-.8, .8), rand(.5, 1.1), rand(-.4, .4)).multiplyScalar(r)), .1 * r, .04 * r, 4);
+        }
+      } else if (style < .75) {   // brain coral: a squashed faceted dome
+        const dome = new T.IcosahedronGeometry(r * 1.1, 0).toNonIndexed();
+        dome.scale(1.2, .7, 1.1); dome.translate(x, y + r * .3, z);
+        pos.push(...dome.attributes.position.array);
+      } else {                    // sea fan: a flat spray of thin blades
+        const yaw = rand(0, 6.3);
+        for (let b = 0; b < 7; b++) {
+          const ang = -1.1 + b / 6 * 2.2, len = rand(1.8, 2.8) * r;
+          const tip = new T.Vector3(x + Math.sin(ang) * Math.cos(yaw) * len, y + Math.cos(ang) * len, z + Math.sin(ang) * Math.sin(yaw) * len);
+          prism(pos, new T.Vector3(x, y, z), tip, .09 * r, .03 * r, 3);
+        }
+      }
+    }
+    scenery(pos, pal, .9);
+  }
+  // kelp: twisting ribbons with leaves, swaying from the root up
+  {
+    const pos = [], sway = [];
+    const push = (p, h, ph) => { pos.push(p[0], p[1], p[2]); sway.push(h, ph); };
+    for (let i = 0; i < (wide ? 30 : 14); i++) {
+      const z = rand(Z1 + 6, 8), x = placeX(z), y0 = groundY(), H = rand(2.5, 6), SEG = 8, w = rand(.22, .34), ph = rand(0, 6.3);
+      const at = s => { const a = s * .7 + ph, y = y0 + s / SEG * H; return [[x - Math.cos(a) * w, y, z - Math.sin(a) * w], [x + Math.cos(a) * w, y, z + Math.sin(a) * w]]; };
+      for (let s = 0; s < SEG; s++) {
+        const [a0, a1] = at(s), [b0, b1] = at(s + 1), h0 = s / SEG, h1 = (s + 1) / SEG;
+        push(a0, h0, ph); push(a1, h0, ph); push(b0, h1, ph);
+        push(a1, h0, ph); push(b1, h1, ph); push(b0, h1, ph);
+        if (s > 1 && s % 2 === 0) {   // a leaf off alternate sides
+          const side = s % 4 === 0 ? 1 : -1, mid = [(a0[0] + a1[0]) / 2, a0[1], (a0[2] + a1[2]) / 2];
+          push(mid, h0, ph); push([mid[0] + side * rand(.8, 1.3), mid[1] + rand(.6, 1.1), mid[2] + rand(-.3, .3)], h1, ph); push([mid[0], mid[1] + H / SEG * 1.4, mid[2]], h1, ph);
+        }
+      }
+    }
+    const geo = new T.BufferGeometry();
+    geo.setAttribute('position', new T.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('aSway', new T.Float32BufferAttribute(sway, 2));
+    kelpMat = new T.ShaderMaterial({ uniforms: { uTime: { value: 0 }, uGain: { value: .72 }, uPal: { value: 2 } },
+      vertexShader: KELP_VS, fragmentShader: SCENERY_FS, side: T.DoubleSide, extensions: { derivatives: true } });
+    const kelp = new T.Mesh(geo, kelpMat);
+    kelp.frustumCulled = false; scene.add(kelp);
+  }
+}
+function updateSchools(dt, t) {
+  if (kelpMat) kelpMat.uniforms.uTime.value = t * SPEED;
+  if (!schoolMesh) return;
+  for (const { lead: L, members } of SCHOOLS) {
+    L.retarget -= dt;
+    if (L.retarget <= 0 || L.pos.distanceTo(L.target) < 3) pickTarget(L);
+    tmp.subVectors(L.target, L.pos).normalize();
+    L.dir.lerp(tmp, Math.min(1, dt * 1.1)).normalize();
+    L.dir.y = clamp(L.dir.y, -.35, .35); L.dir.normalize();
+    L.pos.addScaledVector(L.dir, L.speed * SPEED * dt);
+    for (const m of members) {
+      // each fish chases its slot beside the leader; the slots sway so the school breathes
+      tmp2.copy(m.off).multiplyScalar(1 + .25 * Math.sin(t * .7 + m.i)).add(L.pos);
+      prev.copy(m.pos);
+      m.pos.lerp(tmp2, Math.min(1, dt * m.k));
+      prev.subVectors(m.pos, prev);
+      if (prev.lengthSq() > 1e-7) m.dir.lerp(prev.normalize(), Math.min(1, dt * 4)).normalize();
+      dummy.position.copy(m.pos);
+      dummy.lookAt(tmp.copy(m.pos).add(m.dir));
+      dummy.scale.setScalar(m.size);
+      dummy.updateMatrix();
+      schoolMesh.setMatrixAt(m.i, dummy.matrix);
+    }
+  }
+  schoolMesh.instanceMatrix.needsUpdate = true;
+  schoolMesh.material.uniforms.uTime.value = t;
+}
+
+// ---- reading a fish: its body scatters into the sentence ----
+let sel = null;   // {f, t0, tc, lay}
+const now = () => performance.now() / 1000;
+const READ_FONT = `300 19px ${DISPLAY}`;
+const NAME_FONT = `500 15px ${DISPLAY}`, SCI_FONT = `italic 300 12px ${DISPLAY}`, FACT_FONT = `300 13px ${DISPLAY}`, SMALL_FONT = `10px ${MONO}`;
+function wrapWords(text, font, maxW) {
+  g.font = font;
+  const lines = []; let line = '';
+  for (const word of text.split(' ')) {
+    const t = line ? line + ' ' + word : word;
+    if (g.measureText(t).width > maxW && line) { lines.push(line); line = word; } else line = t;
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+// the reading card: the sentence on top, then who the creature really is
+function layoutCard(f) {
+  const pw = Math.min(380, W - 32), inner = pw - 40, LH = 28, pos = [];
+  g.font = READ_FONT;
+  let x = 0, y = 0, w = 0;
+  for (const ch of [...f.text]) {
+    const cw = g.measureText(ch).width;
+    if (x + cw > inner && x > 0) { x = 0; y += LH; }
+    pos.push({ c: ch, x: x + cw / 2, y });
+    x += cw; w = Math.max(w, x);
+  }
+  const h = y + LH;
+  for (const p of pos) { p.x -= w / 2; p.y += LH / 2 - h / 2; }
+  const fact = wrapWords(f.info.fact, FACT_FONT, inner), habitat = wrapWords('Habitat · ' + f.info.habitat, SMALL_FONT, inner);
+  const ph = 22 + h + 28 + 20 + 18 + 28 + fact.length * 19 + 8 + habitat.length * 15 + 14 + 14 + 18;
+  return { pos, h, pw, ph, fact, habitat };
+}
+function selP(t) {
+  if (!sel) return 0;
+  return sel.tc ? 1 - clamp((t - sel.tc) / .45, 0, 1) : clamp((t - sel.t0) / .7, 0, 1);
+}
+// while a card is open the prompt fades back so the card reads cleanly over it
+function openFish(f) { sel = { f, t0: now(), tc: 0, lay: layoutCard(f) }; document.body.classList.add('reading'); meet(f.info); }
+function closeFish() { if (sel && !sel.tc) sel.tc = now(); document.body.classList.remove('reading'); }
+function ago(at) {
+  const s = (Date.now() - at) / 1000;
+  const n = (v, u) => v + ' ' + u + (v === 1 ? '' : 's') + ' ago';
+  if (s < 60) return 'just now';
+  if (s < 3600) return n(Math.floor(s / 60), 'minute');
+  if (s < DAY / 1000) return n(Math.floor(s / 3600), 'hour');
+  return n(Math.floor(s / 86400), 'day');
+}
+let panel = null, reportRect = null;
+function drawCard(t) {
+  if (!sel) { panel = null; return; }
+  const P = selP(t);
+  if (sel.tc && P <= 0) { sel = null; panel = null; return; }
+  const f = sel.f, L = sel.lay, { pos, h, pw, ph } = L, head = screenOf(f, .3), R = f.scale * f.hitR * pxPerUnit(f);
+  let cx = clamp(head.x, pw / 2 + 16, W - pw / 2 - 16);
+  let cy = head.y - ph / 2 - R - 30;
+  if (cy - ph / 2 < 80) cy = head.y + ph / 2 + R + 30;
+  cy = clamp(cy, ph / 2 + 70, Math.max(ph / 2 + 70, H - ph / 2 - 16));
+  panel = { x: cx - pw / 2, y: cy - ph / 2, w: pw, h: ph };
+  const x0 = panel.x + 20;
+
+  g.globalAlpha = ease(P);
+  g.fillStyle = 'rgba(255,255,255,.82)'; g.strokeStyle = C['glass-line']; g.lineWidth = 1;
+  g.shadowColor = 'rgba(20,22,26,.1)'; g.shadowBlur = 30; g.shadowOffsetY = 10;
+  g.beginPath();
+  if (g.roundRect) g.roundRect(panel.x, panel.y, pw, ph, 14); else g.rect(panel.x, panel.y, pw, ph);
+  g.fill();
+  g.shadowColor = 'transparent'; g.shadowBlur = 0; g.shadowOffsetY = 0;
+  g.stroke();
+  // species block
+  const info = f.info;
+  let y = panel.y + 22 + h + 14;
+  g.fillStyle = C['glass-line']; g.fillRect(x0, y, pw - 40, 1);
+  y += 22;
+  g.textAlign = 'left'; g.textBaseline = 'middle';
+  g.font = NAME_FONT; g.fillStyle = C.ink; g.fillText(info.name, x0, y);
+  y += 18; g.font = SCI_FONT; g.fillStyle = C.muted; g.fillText(info.sci, x0, y);
+  y += 22;
+  const label = info.iucn + ' · ' + IUCN[info.iucn];
+  g.font = SMALL_FONT;
+  const cw = g.measureText(label).width + 14, key = info.iucn.toLowerCase();
+  g.fillStyle = C['iucn-' + key];
+  g.beginPath(); if (g.roundRect) g.roundRect(x0, y - 9, cw, 18, 4); else g.rect(x0, y - 9, cw, 18); g.fill();
+  g.fillStyle = key === 'vu' ? C['iucn-vu-text'] : C['iucn-text']; g.fillText(label, x0 + 7, y + .5);
+  g.fillStyle = C.muted; g.fillText('IUCN Red List', x0 + cw + 10, y + .5);
+  y += 24;
+  g.font = FACT_FONT; g.fillStyle = C.ink;
+  for (const l of L.fact) { g.fillText(l, x0, y); y += 19; }
+  y += 4; g.font = SMALL_FONT; g.fillStyle = C.muted;
+  for (const l of L.habitat) { g.fillText(l, x0, y); y += 15; }
+  y += 12; g.fillStyle = f.mine ? C.accent : C.muted;
+  g.fillText((f.mine ? 'you' : 'a passerby') + ' · ' + ago(f.at), x0, y);
+  reportRect = null;
+  if (!f.mine && !f.localOnly) {
+    const label = f.reported ? 'reported' : 'report ⚑', rw = g.measureText(label).width;
+    g.textAlign = 'right'; g.fillStyle = f.reported ? C.muted : C['iucn-cr'];
+    g.fillText(label, panel.x + pw - 20, y);
+    if (!f.reported) reportRect = { x: panel.x + pw - 26 - rw, y: y - 12, w: rw + 12, h: 24 };
+  }
+  g.globalAlpha = 1;
+
+  // the sentence: each character flies from the body into place
+  g.font = READ_FONT; g.fillStyle = f.mine ? C.accent : C.ink; g.textAlign = 'center';
+  const Lc = pos.length, ty = panel.y + 22 + h / 2;
+  pos.forEach((p, k) => {
+    const sp = screenOf(f, .45 - .9 * k / Math.max(1, Lc - 1));
+    const pk = ease(P * 1.35 - (k / Math.max(1, Lc)) * .35);
+    g.fillText(p.c, sp.x + (cx + p.x - sp.x) * pk, sp.y + (ty + p.y - sp.y) * pk);
+  });
+}
+
+// ---- field guide: the species you've met, kept in this browser ----
+const MET_KEY = 'drift-sea-met';
+let met = new Set();
+try { met = new Set(JSON.parse(localStorage.getItem(MET_KEY) || '[]')); } catch (e) { met = new Set(); }
+function meet(info) {
+  if (!info || met.has(info.id)) return;
+  met.add(info.id);
+  try { localStorage.setItem(MET_KEY, JSON.stringify([...met])); } catch (e) { /* the guide still works for this visit */ }
+  toast('New in your field guide: ' + info.name);
+  renderGuide();
+}
+const GROUPS = [['fish', 'Small fish'], ['shark', 'Sharks'], ['manta', 'Rays'], ['whale', 'Whales']];
+function renderGuide() {
+  $('#guideCount').textContent = met.size + '/' + ALL_SPECIES.length;
+  const list = $('#guideList');
+  list.replaceChildren();
+  for (const [key, title] of GROUPS) {
+    const h3 = document.createElement('h3'); h3.textContent = title; list.append(h3);
+    for (const s of CATALOG[key]) {
+      const e = document.createElement('div'), seen = met.has(s.id);
+      e.className = 'entry' + (seen ? '' : ' unmet');
+      const top = document.createElement('div'); top.className = 'top';
+      const name = document.createElement('span'); name.className = 'name'; name.textContent = seen ? s.name : '? ? ?';
+      const chip = document.createElement('span'); chip.className = 'chip ' + s.iucn; chip.textContent = s.iucn + ' · ' + IUCN[s.iucn];
+      top.append(name, chip); e.append(top);
+      const sci = document.createElement('span'); sci.className = 'sci'; sci.textContent = seen ? s.sci : 'Not met yet';
+      e.append(sci);
+      if (seen) { const fact = document.createElement('span'); fact.className = 'fact'; fact.textContent = s.fact; e.append(fact); }
+      list.append(e);
+    }
+  }
+}
+renderGuide();
+const guide = $('#guide'), guideBtn = $('#guideBtn');
+function setGuide(open) { guide.hidden = !open; guideBtn.setAttribute('aria-expanded', String(open)); }
+guideBtn.addEventListener('click', () => setGuide(guide.hidden));
+$('#guideClose').addEventListener('click', () => { setGuide(false); guideBtn.focus(); });
+addEventListener('keydown', e => { if (e.key === 'Escape' && !guide.hidden) setGuide(false); });
+
+// ---- releasing a fish: the typed characters gather, then a shark swims out of that spot ----
+const births = [];
+function worldAt(sx, sy, z) {
+  pv.set(sx / W * 2 - 1, 1 - sy / H * 2, .5).unproject(camera).sub(camera.position).normalize();
+  const k = (z - camera.position.z) / pv.z;
+  return camera.position.clone().addScaledVector(pv, k);
+}
+function drawBirths(t) {
+  g.font = READ_FONT; g.fillStyle = C.accent; g.textAlign = 'center'; g.textBaseline = 'middle';
+  for (let b = births.length - 1; b >= 0; b--) {
+    const B = births[b], p = (t - B.t0) / .9;
+    if (p >= 1) {
+      births.splice(b, 1);
+      if (!renderer) continue;
+      const f = makeFish(B.item, false);
+      f.pos.copy(worldAt(B.tx, B.ty, f.species === 'whale' ? -12 : 6));
+      f.dir.set(Math.random() < .5 ? 1 : -1, .25, -.3).normalize();
+      f.burst = 1.4;
+      fishMap.set(B.item.key, f); rebuildList();
+      continue;
+    }
+    const Lc = B.chars.length;
+    B.chars.forEach((c, k) => {
+      const e = ease(p), a = k / Lc * 6.28 + p * 4, r = (1 - e) * 36;
+      g.fillText(c.c, c.x + (B.tx + Math.cos(a) * r - c.x) * e, c.y + (B.ty + Math.sin(a) * r - c.y) * e);
+    });
+  }
+}
+
+// your own creatures carry a small "yours" tag, since colour now varies by creature
+function drawMine() {
+  if (!renderer) return;
+  g.font = `9px ${MONO}`; g.textAlign = 'left'; g.textBaseline = 'middle';
+  for (const f of fishList) {
+    if (!f.mine || (sel && sel.f === f)) continue;
+    const p = screenOf(f, .25), lift = f.scale * f.hitR * pxPerUnit(f) + 14;
+    g.globalAlpha = .85;
+    g.fillStyle = C.accent; g.fillRect(p.x - 3, p.y - lift - 3, 6, 6);
+    g.fillText('yours', p.x + 7, p.y - lift);
+  }
+  g.globalAlpha = 1;
+}
+
+// ---- main loop ----
+let last = performance.now();
+function frame(ms) {
+  const dt = Math.min(.05, (ms - last) / 1000), t = ms / 1000; last = ms;
+  g.clearRect(0, 0, W, H);
+  drawWater(t);
+  if (renderer) {
+    const P = selP(t);
+    for (const f of fishList) {
+      swim(f, dt);
+      let gain = f.decor ? .85 : 1 - .45 * ageN(f);
+      if (sel && sel.f === f) gain *= 1 - .8 * P;
+      f.mat.uniforms.uGain.value = gain;
+    }
+    updateSchools(dt, t);
+    renderer.setRenderTarget(rt);
+    renderer.setClearColor(0x000000, 0); renderer.clear();
+    renderer.render(scene, camera);
+    renderer.setRenderTarget(null); renderer.clear();
+    post.material.uniforms.tScene.value = rt.texture;
+    post.material.uniforms.uTime.value = t;
+    renderer.render(post.scene, post.cam);
+  }
+  drawLattice(); drawMine(); drawBirths(t); drawCard(t);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+if (document.fonts) document.fonts.ready.then(() => { if (sel && !sel.tc) sel.lay = layoutText(sel.f.text); });
+
+ui.addEventListener('pointerdown', e => {
+  const x = e.clientX, y = e.clientY;
+  if (panel && x > panel.x && x < panel.x + panel.w && y > panel.y && y < panel.y + panel.h) {
+    const r = reportRect;
+    if (r && sel && x > r.x && x < r.x + r.w && y > r.y && y < r.y + r.h) reportFish(sel.f);
+    return;
+  }
+  const f = hitTest(x, y);
+  if (f && (!sel || sel.f !== f || sel.tc)) openFish(f); else closeFish();
+});
+ui.addEventListener('pointermove', e => { ui.style.cursor = hitTest(e.clientX, e.clientY) ? 'pointer' : ''; });
+addEventListener('keydown', e => { if (e.key === 'Escape') closeFish(); });
+
+// ---- HUD, status, toast ----
+function updateHud() {
+  const real = fishList.filter(f => !f.decor);
+  $('#nAll').textContent = real.length;
+  $('#nMine').textContent = real.filter(f => f.mine).length;
+  $('#hint').textContent = !renderer
+    ? 'This browser can’t draw the 3D sea, but you can still release sentences.'
+    : loaded && real.length === 0
+      ? 'The sea is empty. Write the first sentence and it becomes the first fish.'
+      : 'Click a creature to read it · longer sentences grow bigger creatures';
+}
+function setStatus(m) {
+  mode = m;
+  const text = {
+    live: 'Live · everyone can see the creatures you release',
+    error: 'Can’t reach the sea right now · retrying',
+  }[m];
+  $('#statusText').textContent = text;
+  $('#dot').classList.toggle('live', m === 'live');
+}
+let toastTimer;
+function toast(msg) {
+  const el = $('#toast');
+  el.textContent = msg; el.hidden = false;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { el.hidden = true; }, 3800);
+}
+
+// ---- the sea's API: GET /api/fish lists creatures, POST releases one, POST /api/report flags one ----
+// Each browser keeps a random token; the server stores only its hash, which is how "yours" is recognised.
+let visitor = null;
+async function sha16(s) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 16);
+}
+function visitorToken() {
+  try {
+    let t = localStorage.getItem('drift-sea-visitor');
+    if (!t) { t = crypto.randomUUID(); localStorage.setItem('drift-sea-visitor', t); }
+    return t;
+  } catch (e) { return visitor || crypto.randomUUID(); }   // private windows: a token for this visit only
+}
+function removeKey(k) {
+  const f = fishMap.get(k);
+  if (f) { fishMap.delete(k); removeFish(f); if (sel && sel.f === f) { sel = null; document.body.classList.remove('reading'); } }
+}
+async function loadSea() {
+  try {
+    const r = await fetch('/api/fish', { cache: 'no-store' });
+    if (!r.ok) throw new Error(r.status);
+    const { fish } = await r.json();
+    online = true; setStatus('live');
+    const seen = new Set();
+    for (const it of fish) {
+      if (!it || typeof it.text !== 'string' || typeof it.id !== 'string') continue;
+      seen.add(it.id);
+      if (!fishMap.has(it.id) && !births.some(b => b.item.key === it.id))
+        addFish({ key: it.id, text: it.text.slice(0, MAX_LEN), at: Number(it.at) || Date.now(), mine: it.owner === myOwner }, loaded);
+    }
+    for (const [k, f] of fishMap) if (!f.decor && !f.localOnly && !seen.has(k)) removeKey(k);
+    loaded = true; rebuildList();
+  } catch (e) {
+    online = false; setStatus('error');
+    if (!loaded) { loaded = true; updateHud(); }
+  }
+}
+(async () => {
+  visitor = visitorToken();
+  myOwner = await sha16(visitor);
+  await loadSea();
+  setInterval(() => { if (!document.hidden) loadSea(); }, 15000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) loadSea(); });
+})();
+
+async function save(item) {
+  try {
+    const r = await fetch('/api/fish', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-visitor': visitor },
+      body: JSON.stringify({ id: item.id, text: item.t }),
+    });
+    if (r.status === 201) return 'ok';
+    const body = await r.json().catch(() => ({}));
+    return body.error || 'unavailable';
+  } catch (e) { return 'offline'; }
+}
+async function reportFish(f) {
+  if (!confirm('Report this sentence? A creature reported by several people is taken out of the sea.')) return;
+  f.reported = true;
+  try {
+    await fetch('/api/report', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: f.key }) });
+    toast('Reported. Thanks for keeping the sea kind.');
+  } catch (e) { f.reported = false; toast('Couldn’t send the report. Try again in a moment.'); }
+}
+
+// ---- the prompt ----
+const input = $('#msg'), go = $('#go');
+let coolUntil = 0;
+input.addEventListener('input', () => { $('#count').textContent = [...input.value].length + '/' + MAX_LEN; });
+// the viewer's frame may never dispatch form submits, so Release is wired to the button and Enter directly
+$('#f').addEventListener('submit', e => { e.preventDefault(); release(); });
+go.addEventListener('click', () => release());
+input.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); release(); }
+});
+async function release() {
+  const text = input.value.replace(/\s+/g, ' ').trim();
+  if (!text) { input.focus(); return; }
+  if (Date.now() < coolUntil) { toast('Easy — your last fish hasn’t swum away yet.'); return; }
+  coolUntil = Date.now() + COOLDOWN;
+  go.disabled = true; setTimeout(() => { go.disabled = false; }, COOLDOWN);
+
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  const item = { id, t: [...text].slice(0, MAX_LEN).join(''), at: Date.now() };
+  const r = input.getBoundingClientRect(), chars = [...item.t];
+  const key = id;
+  births.push({
+    item: { key, text: item.t, at: item.at, mine: true, localOnly: false },
+    t0: now(), tx: W / 2 + rand(-60, 60), ty: Math.max(90, r.top - 140),
+    chars: chars.map((c, k) => ({ c, x: r.left + 8 + (k + .5) / chars.length * Math.min(r.width - 16, chars.length * 12), y: r.top + r.height / 2 })),
+  });
+  input.value = ''; $('#count').textContent = '0/' + MAX_LEN;
+
+  const res = await save(item);
+  if (res === 'ok') { toast('Released. Everyone who visits this sea can see it now.'); return; }
+  const msg = {
+    blocked: 'Links, emails and phone numbers can’t go into the sea, and neither can some words. Try another sentence.',
+    length: 'Sentences can be up to 60 characters.',
+    slow_down: 'Easy — wait a few seconds before releasing another.',
+    daily_limit: 'You’ve released a lot today. Come back tomorrow for more.',
+  }[res] || 'Network trouble — this creature didn’t make it in. Try again in a moment.';
+  toast(msg);
+  // refused sentences leave right away; ones lost to the network stay on this screen only
+  const refusedNow = ['blocked', 'length', 'slow_down', 'daily_limit', 'bad_request', 'duplicate'].includes(res);
+  for (let b = births.length - 1; b >= 0; b--) if (births[b].item.key === key) { if (refusedNow) births.splice(b, 1); else births[b].item.localOnly = true; }
+  if (refusedNow) removeKey(key); else { const f = fishMap.get(key); if (f) f.localOnly = true; }
+}
+})();
+</script>
+
+</body>
+</html>

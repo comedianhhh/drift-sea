@@ -1,0 +1,14 @@
+{
+  "name": "drift-sea",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "db:local": "wrangler d1 execute drift-sea --local --file=schema.sql",
+    "db:remote": "wrangler d1 execute drift-sea --remote --file=schema.sql",
+    "dev": "wrangler pages dev --port 8788",
+    "deploy": "wrangler pages deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.154.0"
+  }
+}
