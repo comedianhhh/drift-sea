@@ -3,6 +3,8 @@
 A shared pixel aquarium. Every visitor's sentence becomes a real ocean species that swims in the sea for everyone to see.
 Click a creature to read its sentence, learn about the species (with its IUCN Red List status), and add it to your field guide.
 
+Live at https://drift-sea.alan996.workers.dev
+
 Runs as a Cloudflare Worker with static assets and a D1 database. Pushing to `main` deploys automatically through Workers Builds.
 
 ## How it works
