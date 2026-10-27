@@ -1,11 +1,11 @@
-import { json, sha16, ipHash, ID_RE, TOKEN_RE } from '../../lib/http.js';
-import { refused } from '../../lib/moderation.js';
+import { json, sha16, ipHash, ID_RE, TOKEN_RE } from '../lib/http.js';
+import { refused, REPORT_LIMIT } from '../lib/moderation.js';
 
 const MAX_LEN = 60, LIST_LIMIT = 400;
 const COOLDOWN_MS = 15000, DAILY_LIMIT = 30, DAY_MS = 864e5;
 
 // GET /api/fish: the newest creatures still in the sea
-export async function onRequestGet({ env }) {
+async function listFish(env) {
   const { results } = await env.DB
     .prepare('SELECT id, text, at, owner FROM fish WHERE hidden = 0 ORDER BY at DESC LIMIT ?')
     .bind(LIST_LIMIT).all();
@@ -13,7 +13,7 @@ export async function onRequestGet({ env }) {
 }
 
 // POST /api/fish {id, text}, header X-Visitor: release a sentence
-export async function onRequestPost({ request, env }) {
+async function releaseFish(request, env) {
   let body;
   try { body = await request.json(); } catch { return json({ error: 'bad_request' }, 400); }
   const token = request.headers.get('x-visitor') || '';
@@ -41,3 +41,36 @@ export async function onRequestPost({ request, env }) {
   }
   return json({ fish: { id, text, at: now, owner } }, 201);
 }
+
+// POST /api/report {id}: one report per person per creature; enough reports take it out of the sea
+async function reportFish(request, env) {
+  let body;
+  try { body = await request.json(); } catch { return json({ error: 'bad_request' }, 400); }
+  const id = String(body.id || '');
+  if (!ID_RE.test(id)) return json({ error: 'bad_request' }, 400);
+
+  const ip = await ipHash(request, env);
+  const res = await env.DB.prepare('INSERT OR IGNORE INTO reports (fish_id, ip, at) VALUES (?, ?, ?)')
+    .bind(id, ip, Date.now()).run();
+  if (res.meta.changes) {
+    await env.DB.prepare('UPDATE fish SET reports = reports + 1, hidden = CASE WHEN reports + 1 >= ? THEN 1 ELSE hidden END WHERE id = ?')
+      .bind(REPORT_LIMIT, id).run();
+  }
+  return json({ ok: true });
+}
+
+// Static files in public/ are served before this runs; only requests with no matching file reach it.
+export default {
+  async fetch(request, env) {
+    const { pathname } = new URL(request.url);
+    const m = request.method;
+    if (pathname === '/api/fish') {
+      if (m === 'GET') return listFish(env);
+      if (m === 'POST') return releaseFish(request, env);
+    } else if (pathname === '/api/report' && m === 'POST') {
+      return reportFish(request, env);
+    }
+    if (pathname.startsWith('/api/')) return json({ error: 'not_found' }, 404);
+    return env.ASSETS.fetch(request);
+  },
+};
