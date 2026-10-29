@@ -1,6 +1,7 @@
 {
   "name": "drift-sea",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "db:local": "wrangler d1 execute drift-sea --local --file=schema.sql",
