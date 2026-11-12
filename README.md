@@ -31,3 +31,11 @@ npx wrangler deploy
 ```
 
 Schema changes go to the live database with `npm run db:remote`.
+
+## Verify before pushing
+
+```bash
+npm run verify
+```
+
+This starts a private local copy with an empty database, checks the API (release, moderation, reports), saves evidence in `.verify/<run>/`, and cleans up afterwards. It never touches the live site. `--keep` leaves the server up for a browser check. See `.claude/skills/verify-drift-sea/SKILL.md`.

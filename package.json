@@ -7,7 +7,8 @@
     "db:local": "wrangler d1 execute drift-sea --local --file=schema.sql",
     "db:remote": "wrangler d1 execute drift-sea --remote --file=schema.sql",
     "dev": "wrangler dev --port 8788",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "verify": "node scripts/verify.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.154.0"
