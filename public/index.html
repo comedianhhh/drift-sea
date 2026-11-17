@@ -4,6 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <style>html{color-scheme:light}body{margin:0;font:14px system-ui,sans-serif}[hidden]{display:none!important}</style>
+<meta name="description" content="A shared pixel sea where every sentence someone leaves becomes a real ocean species.">
+<script>
+// first visit only: the sea assembles itself once. Later visits and reduced-motion open straight on the finished sea.
+try {
+  if (!localStorage.getItem('drift-sea-seen') && !matchMedia('(prefers-reduced-motion: reduce)').matches)
+    document.documentElement.classList.add('intro');
+  localStorage.setItem('drift-sea-seen', '1');
+} catch (e) { /* private window: no intro, nothing breaks */ }
+</script>
 </head>
 <body>
 <title>Drift Sea</title>
@@ -18,7 +27,7 @@
   --haze-center: #fbfbfb;
   --haze-edge: #e1e2e3;
   --ink: #262728;
-  --muted: #8b8d90;
+  --muted: #6b6d70;
   --dot: #b9bbbe;
   /* creature palettes, light -> dark tile ends: graphite, slate, kelp, sand, coral, dusk */
   --p0-light: #e4e5e7; --p0-dark: #26282b;
@@ -37,9 +46,9 @@
   --f-mono: "Martian Mono", ui-monospace, Menlo, Consolas, monospace;
   color-scheme: light;
 }
-html, body { height: 100%; }
+html, body { height: 100%; overflow: clip; }
 body {
-  color: var(--ink); overflow: hidden; font-family: var(--f-display);
+  color: var(--ink); font-family: var(--f-display);
   background: radial-gradient(ellipse at 50% 42%, var(--haze-center) 0%, var(--haze-center) 25%, var(--haze-edge) 100%) fixed, var(--haze-edge);
 }
 canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
@@ -54,8 +63,8 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   pointer-events: none;
 }
 .brand { font-weight: 500; font-size: 16px; letter-spacing: -.01em; }
-.sub { font-family: var(--f-mono); font-size: 10px; color: var(--muted); margin-top: 5px; }
-.stats { display: flex; gap: 22px; font-family: var(--f-mono); font-size: 10px; color: var(--muted); text-align: right; }
+.sub { font-family: var(--f-mono); font-size: 11px; line-height: 1.4; color: var(--muted); margin-top: 4px; }
+.stats { display: flex; gap: 20px; font-family: var(--f-mono); font-size: 11px; color: var(--muted); text-align: right; }
 .stats b { display: block; font-family: var(--f-display); font-weight: 300; font-size: 24px; color: var(--ink); font-variant-numeric: tabular-nums; }
 .stats .mine b { color: var(--accent); }
 
@@ -70,7 +79,7 @@ body.reading .prompt { opacity: .08; }
 body.reading .prompt .box { pointer-events: none; }
 .q { margin: 0; font-weight: 300; font-size: clamp(30px, 6vw, 46px); letter-spacing: -.03em; text-align: center; text-wrap: balance; }
 .box {
-  pointer-events: auto; width: 100%;
+  pointer-events: auto; width: 100%; box-sizing: border-box;
   display: flex; flex-direction: column; gap: 10px;
   background: var(--glass); border: 1px solid var(--glass-line); border-radius: 14px;
   padding: 14px 14px 10px 16px;
@@ -81,23 +90,26 @@ body.reading .prompt .box { pointer-events: none; }
 #msg { width: 100%; border: 0; background: transparent; color: var(--ink); font: 14px var(--f-display); padding: 2px 0; outline: none; }
 #msg::placeholder { color: var(--muted); }
 .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-#count { font-family: var(--f-mono); font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
+#count { font-family: var(--f-mono); font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
 #go {
-  border: 0; border-radius: 7px; padding: 7px 11px; cursor: pointer;
-  background: rgba(20, 22, 26, .07); color: var(--ink); font: 10px var(--f-mono);
+  border: 0; border-radius: 7px; padding: 8px 12px; cursor: pointer;
+  background: rgba(20, 22, 26, .07); color: var(--ink); font: 12px var(--f-mono);
+  transition: background-color .15s ease, transform .1s ease;
 }
 #go:hover { background: rgba(20, 22, 26, .12); }
-#go:disabled { opacity: .4; cursor: default; }
+#go:active { transform: translateY(1px); background: rgba(20, 22, 26, .16); }
+#go:disabled { background: transparent; color: var(--muted); cursor: not-allowed; transform: none; }
 #go:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.hint { margin: 0; font-family: var(--f-mono); font-size: 10px; color: var(--muted); text-align: center; text-wrap: balance; }
+.hint { margin: 0; font-family: var(--f-mono); font-size: 11px; line-height: 1.5; color: var(--muted); text-align: center; text-wrap: balance; }
 
 .right { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
 #guideBtn {
   pointer-events: auto; cursor: pointer; border: 1px solid var(--glass-line); border-radius: 8px;
-  background: var(--glass); color: var(--ink); font: 10px var(--f-mono); padding: 7px 10px;
+  background: var(--glass); color: var(--ink); font: 11px var(--f-mono); padding: 7px 10px; white-space: nowrap;
   -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
 }
 #guideBtn:hover { background: rgba(255, 255, 255, .85); }
+#guideBtn:active { transform: translateY(1px); }
 #guideBtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 #guideBtn b { font-weight: 400; color: var(--accent); }
 .guide {
@@ -129,8 +141,20 @@ body.reading .prompt .box { pointer-events: none; }
   position: fixed; left: 0; bottom: 0; z-index: 2;
   padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
   padding-left: max(16px, env(safe-area-inset-left, 0px));
-  display: flex; align-items: center; gap: 8px; font-family: var(--f-mono); font-size: 10px; color: var(--muted);
+  display: flex; align-items: center; gap: 8px; font-family: var(--f-mono); font-size: 11px; color: var(--muted);
   pointer-events: none;
+}
+
+/* ---- first-visit entrance: ~1.4s, never blocks typing ---- */
+@keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes typeIn { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+.intro .q { animation: typeIn .9s steps(20, end) .35s both; }
+.intro .box { animation: rise .6s cubic-bezier(.2, .7, .2, 1) .7s both; }
+.intro .hint { animation: fadeIn .6s ease 1.1s both; }
+.intro .hud, .intro .status { animation: fadeIn .8s ease .9s both; }
+@media (prefers-reduced-motion: reduce) {
+  .intro .q, .intro .box, .intro .hint, .intro .hud, .intro .status { animation: none; }
 }
 .dot { width: 6px; height: 6px; border-radius: 1px; background: var(--dot); }
 .dot.live { background: var(--accent); }
@@ -1010,6 +1034,92 @@ function drawBirths(t) {
   }
 }
 
+// ---- entrance: on a first visit the sea resolves from coarse tiles to its fine grain (~1.4s) ----
+const INTRO = document.documentElement.classList.contains('intro'), INTRO_LEN = 1.4;
+let introT0 = null;
+function introP(t) {
+  if (!INTRO) return 1;
+  if (introT0 === null) introT0 = t;
+  return clamp((t - introT0) / INTRO_LEN, 0, 1);
+}
+
+// ---- whispers: now and then a creature says its sentence, so a newcomer sees what the sea is made of ----
+const WHISPER_EVERY = 5.5, WHISPER_HOLD = 4.2, WHISPER_FONT = `400 17px ${DISPLAY}`;
+let whisper = null, nextWhisper = 2.2, whisperRect = null, lastWhispered = null;
+// word wrap that also breaks a run with no spaces (emoji, CJK) so a bubble never outgrows maxW
+function wrapChars(text, font, maxW) {
+  g.font = font;
+  const lines = [];
+  for (const word of wrapWords(text, font, maxW)) {
+    if (g.measureText(word).width <= maxW) { lines.push(word); continue; }
+    let line = '';
+    for (const ch of [...word]) {
+      if (g.measureText(line + ch).width > maxW && line) { lines.push(line); line = ch; } else line += ch;
+    }
+    if (line) lines.push(line);
+  }
+  return lines;
+}
+function blockedRect() {   // the prompt, which a whisper should never cover
+  const r = document.querySelector('.prompt').getBoundingClientRect();
+  return { x: r.left - 24, y: r.top - 24, w: r.width + 48, h: r.height + 48 };
+}
+const overlaps = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+function pickWhisper() {
+  const block = blockedRect();
+  const ok = fishList.filter(f => {
+    if (f.decor || f === lastWhispered) return false;
+    const p = screenOf(f, .3);
+    if (p.z > 1 || p.x < 60 || p.x > W - 60 || p.y < 110 || p.y > H - 60) return false;
+    return !overlaps({ x: p.x - 140, y: p.y - 70, w: 280, h: 60 }, block);
+  });
+  return ok.length ? ok[Math.floor(Math.random() * ok.length)] : null;
+}
+function drawWhisper(t, dt) {
+  whisperRect = null;
+  if (!renderer || sel || document.hidden) { whisper = null; return; }
+  if (!whisper) {
+    nextWhisper -= dt;
+    // stay quiet while someone is typing
+    if (nextWhisper > 0 || (document.activeElement === input && input.value)) return;
+    const f = pickWhisper();
+    nextWhisper = f ? WHISPER_EVERY : 1.5;
+    if (!f) return;
+    whisper = { f, t0: t, lines: wrapChars(f.text, WHISPER_FONT, Math.min(280, W - 72)) };
+    lastWhispered = f;
+  }
+  const { f, t0, lines } = whisper, age = t - t0;
+  if (age > WHISPER_HOLD || !fishMap.has(f.key)) { whisper = null; return; }
+  const a = Math.min(clamp(age / .4, 0, 1), clamp((WHISPER_HOLD - age) / .5, 0, 1));
+  const head = screenOf(f, .3), R = f.scale * f.hitR * pxPerUnit(f);
+  g.font = WHISPER_FONT;
+  const tw = Math.max(...lines.map(l => g.measureText(l).width)), LH = 23;
+  const bw = tw + 28, bh = lines.length * LH + 18;
+  const bx = clamp(head.x - bw / 2, 16, W - bw - 16);
+  let by = head.y - R - bh - 18, below = false;
+  if (by < 96) { by = head.y + R + 18; below = true; }
+  // the creature swims on; if it carries the bubble over the prompt, let the bubble go early
+  if (!whisper.out && overlaps({ x: bx, y: by, w: bw, h: bh }, blockedRect())) whisper.out = t;
+  const out = whisper.out ? 1 - clamp((t - whisper.out) / .3, 0, 1) : 1;
+  if (out <= 0) { whisper = null; return; }
+  const lift = (1 - ease(a)) * 6;
+  g.globalAlpha = a * out;
+  g.shadowColor = 'rgba(20,22,26,.1)'; g.shadowBlur = 20; g.shadowOffsetY = 6;
+  g.fillStyle = 'rgba(255,255,255,.94)';
+  g.beginPath(); if (g.roundRect) g.roundRect(bx, by + lift, bw, bh, 12); else g.rect(bx, by + lift, bw, bh);
+  g.fill();
+  g.shadowColor = 'transparent'; g.shadowBlur = 0; g.shadowOffsetY = 0;
+  g.strokeStyle = C['glass-line']; g.lineWidth = 1; g.stroke();
+  // a short trail of pixel squares from the bubble down to its creature
+  const px = clamp(head.x, bx + 14, bx + bw - 14), py0 = below ? by + lift : by + lift + bh;
+  g.fillStyle = f.mine ? C.accent : C.muted;
+  for (let k = 0; k < 3; k++) { const s = 4 - k; g.fillRect(px - s / 2, py0 + (below ? -1 : 1) * (5 + k * 6) - s / 2, s, s); }
+  g.fillStyle = f.mine ? C.accent : C.ink; g.textAlign = 'left'; g.textBaseline = 'middle';
+  lines.forEach((l, i) => g.fillText(l, bx + 14, by + lift + 9 + LH / 2 + i * LH));
+  g.globalAlpha = 1;
+  whisperRect = { x: bx, y: by, w: bw, h: bh, f };
+}
+
 // your own creatures carry a small "yours" tag, since colour now varies by creature
 function drawMine() {
   if (!renderer) return;
@@ -1029,8 +1139,12 @@ let last = performance.now();
 function frame(ms) {
   const dt = Math.min(.05, (ms - last) / 1000), t = ms / 1000; last = ms;
   g.clearRect(0, 0, W, H);
-  drawWater(t);
+  const IP = introP(t), IE = ease(IP);
+  g.globalAlpha = IE; drawWater(t); g.globalAlpha = 1;
   if (renderer) {
+    // coarse tiles settle into the fine grain while the sea fades up
+    post.material.uniforms.uTile.value = S * DPR * (1 + 5 * (1 - IE));
+    $('#gl').style.opacity = IP < 1 ? String(clamp(IP * 1.6, 0, 1)) : '';
     const P = selP(t);
     for (const f of fishList) {
       swim(f, dt);
@@ -1047,7 +1161,8 @@ function frame(ms) {
     post.material.uniforms.uTime.value = t;
     renderer.render(post.scene, post.cam);
   }
-  drawLattice(); drawMine(); drawBirths(t); drawCard(t);
+  g.globalAlpha = IE; drawLattice(); g.globalAlpha = 1;
+  drawMine(); if (IP >= 1) drawWhisper(t, dt); drawBirths(t); drawCard(t);
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
@@ -1060,6 +1175,8 @@ ui.addEventListener('pointerdown', e => {
     if (r && sel && x > r.x && x < r.x + r.w && y > r.y && y < r.y + r.h) reportFish(sel.f);
     return;
   }
+  const w = whisperRect;
+  if (w && x > w.x && x < w.x + w.w && y > w.y && y < w.y + w.h) { const wf = w.f; whisper = null; openFish(wf); return; }
   const f = hitTest(x, y);
   if (f && (!sel || sel.f !== f || sel.tc)) openFish(f); else closeFish();
 });
